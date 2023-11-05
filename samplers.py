@@ -22,7 +22,7 @@ def bootstrap_filter(N: int, X, Y, model, seed=0):
     T = len(X)
 
     z_history = []
-    z_t = [None for _ in range(N)]
+    z_t = np.zeros((N, model.latent_dim))
     loglik_running_estimate = 0.
     
     for t in tqdm(range(0,T), desc='Bootstrap filter'):
@@ -44,8 +44,8 @@ def bootstrap_filter(N: int, X, Y, model, seed=0):
             choices = np.arange(N) # Nil likelihood, so no resampling
         else:
             # Normalize importance weights
-            normalized_tilde_w_t = sp.special.softmax(tilde_w_t) # Softmax
-            # normalized_tilde_w_t = tilde_w_t/np.sum(tilde_w_t) # L1 normalization
+            # normalized_tilde_w_t = sp.special.softmax(tilde_w_t) # Softmax
+            normalized_tilde_w_t = tilde_w_t/np.sum(tilde_w_t) # L1 normalization
 
             choices = np.random.choice(N, size=N, p=normalized_tilde_w_t)
         
@@ -70,7 +70,8 @@ def bootstrap_filter(N: int, X, Y, model, seed=0):
         #     else:
         #         raise NotImplementedError
         
-        # lik_estimate = np.mean([emission_likelihood(y=Y[t], x_hat=_xhat, V=_V, sigma=sigma, softmax=softmax) for _xhat, _V in zip(xhat_t, V_t)])
+        # lik_estimate = np.mean([model.emission_likelihood(y=Y[t], x_hat=_xhat, V=_V, sigma=sigma, softmax=softmax) for _xhat, _V in zip(xhat_t, V_t)])
+        # lik_estimate = np.mean(model.emission_likelihood(y=Y[t], latent=z_t))
         lik_estimate = np.mean(tilde_w_t)
         if np.linalg.norm(lik_estimate) == 0.:
             loglik_running_estimate = np.nan
@@ -98,5 +99,10 @@ if __name__=='__main__':
     Y = np.random.randn(T,output_dim)
 
     # Run bootstrap filter
-    N = 100
+    N = 1000
     z_history, loglik = bootstrap_filter(N=N, X=X, Y=Y, model=model)
+    print(loglik)
+
+    # Compare against true marginal log-likelihood
+    loglik_true = model.marginal_log_likelihood(Y, U=X)
+    print(loglik_true)
