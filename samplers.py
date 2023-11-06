@@ -85,7 +85,6 @@ def bootstrap_filter(N: int, X, Y, model, seed=0):
 
 if __name__=='__main__':
     from models import LDS
-    np.random.seed(0)
 
     # Instantiate model
     input_dim = 2
@@ -94,15 +93,24 @@ if __name__=='__main__':
     model = LDS(latent_dim=latent_dim, input_dim=input_dim, output_dim=output_dim)
 
     # Generate data
-    T = 100
+    T = 10
     X = np.random.randn(T,input_dim)
     Y = np.random.randn(T,output_dim)
 
     # Run bootstrap filter
-    N = 1000
+    N = 10
     z_history, loglik = bootstrap_filter(N=N, X=X, Y=Y, model=model)
     print(loglik)
 
     # Compare against true marginal log-likelihood
     loglik_true = model.marginal_log_likelihood(Y, U=X)
     print(loglik_true)
+
+    # Compare with importance sampling from prior
+    N_MC_samples = 1000
+    log_lik_IS = 0.
+    for _ in tqdm(range(N_MC_samples), 'Importance sampling'): 
+        _, Z_samples = model.sample(T, inputs=X)
+        log_lik_IS += np.sum(np.log([model.emission_likelihood(y=y, latent=z) for y, z in zip(Y, Z_samples)]))
+    log_lik_IS /= N_MC_samples
+    print(log_lik_IS)

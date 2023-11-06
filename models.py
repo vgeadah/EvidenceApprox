@@ -147,3 +147,25 @@ class LDS():
             log_lik += sp.stats.multivariate_normal.logpdf(y, mean=self.C @ x_pred, cov=self.C @ V_pred @ self.C.T + R)
 
         return log_lik
+    
+    def sample(self, T, inputs=None) -> Tuple[np.ndarray, np.ndarray]:
+        '''
+        Sample from the model
+        '''
+        if inputs is None:
+            inputs = np.zeros((T, self.input_dim))
+
+        # Sample latent states
+        latents = np.zeros((T, self.latent_dim))
+        for t in range(T):
+            if t==0:
+                latents[t] = self.latent_forward(input=inputs[t], latents_prev=None)
+            else:
+                latents[t] = self.latent_forward(input=inputs[t], latents_prev=latents[t-1])
+        
+        # Sample observations
+        Y = np.zeros((T, self.output_dim))
+        for t in range(T):
+            Y[t] = self.decode(latents[t])
+        
+        return Y, latents
