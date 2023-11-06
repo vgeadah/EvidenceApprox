@@ -2,76 +2,8 @@ import numpy as np
 import scipy as sp
 from typing import Optional, Tuple
 
-def reparameterize(
-        loc: np.ndarray, logscale: np.ndarray
-    ) -> np.ndarray:
-    '''Additive gaussian noise, for reparametrization trick.
-    Returns:
-        A sample from N(loc, logscale) of the same size as `loc`  
-    '''
-    scale = np.multiply(np.exp(logscale), np.ones_like(loc))
-    eps = np.random.randn(*loc.shape)
-    return loc + np.multiply(scale, eps)
-
-def generate_rotation_matrix(N):
-    # Generate a random orthogonal matrix (Q) using the QR decomposition
-    A = np.random.rand(N, N)
-    Q, _ = np.linalg.qr(A)
-
-    # Ensure that the determinant of Q is 1 (to make it a rotation)
-    if np.linalg.det(Q) < 0:
-        Q[:, 0] = -Q[:, 0]
-
-    return Q
-
-def Kalman_filter(
-        Y: np.ndarray, U: np.ndarray, A: np.ndarray, B: np.ndarray, C: np.ndarray, Q: np.ndarray, R: np.ndarray,
-        init_x: np.ndarray, init_V: np.ndarray
-        ):
-    '''
-    #TODO: Generated using copilot. Check. 
-
-    Runs the Kalman smoother on a time series of observations y, with state transition matrix A,
-    observation matrix C, process noise covariance Q, and observation noise covariance R.
-    Assumes that the initial state x_0 is Gaussian with mean init_x and covariance init_V.
-    Returns the smoothed state means and covariances.
-    '''
-    T, _ = Y.shape
-    n_states = init_x.shape[0]
-
-    # Initialize filtered and predictied state means and covariances
-    Xs_pred = np.zeros((T, n_states))
-    Vs_pred = np.zeros((T, n_states, n_states))
-    Xs_filt = np.zeros((T, n_states))
-    Vs_filt = np.zeros((T, n_states, n_states))
-
-    # Initialize Kalman filter state means and covariances
-    x_pred = init_x
-    V_pred = init_V
-    x_filt = init_x
-    V_filt = init_V
-
-    # Run Kalman filter forward pass
-    for t in range(T):
-        # Predict step
-        x_pred = A @ x_filt + B @ U[t]
-        V_pred = A @ V_filt @ A.T + Q
-
-        # Update step
-        y_t = Y[t]
-        _cov = C @ V_pred @ C.T + R
-        K_t = V_pred @ C.T @ np.linalg.inv(_cov)
-        x_filt = x_pred + K_t @ (y_t - C @ x_pred)
-        V_filt = (np.eye(n_states) - K_t @ C) @ V_pred
-        # V_filt = V_pred - K_t @ (C @ V_pred @ C.T + R) @ K_t.T
-
-        # Save filtered state means and covariances
-        Xs_pred[t] = x_pred
-        Vs_pred[t] = V_pred
-        Xs_filt[t] = x_filt
-        Vs_filt[t] = V_filt
-
-    return (Xs_pred, Vs_pred), (Xs_filt, Vs_filt)
+# Local imports
+import utils
 
 class LDS():
     '''Linear Gaussian Dynamical System model'''
@@ -87,7 +19,7 @@ class LDS():
         self.likelihood_logscale = likelihood_logscale
 
         # Define and initialize parameters
-        self.A = 0.9 * generate_rotation_matrix(latent_dim)
+        self.A = 0.9 * utils.generate_rotation_matrix(latent_dim)
         self.B = 0.5 * np.random.rand(latent_dim, input_dim)
         self.C = 0.5 * np.random.rand(output_dim, latent_dim)
     
@@ -100,7 +32,7 @@ class LDS():
         if latents_prev is None:
             latents_prev = np.zeros(self.latent_dim)
         latents_next_mean = self.A @ latents_prev + self.B @ input
-        latents_next = reparameterize(
+        latents_next = utils.reparameterize(
             loc = latents_next_mean,
             logscale = self.dynamics_lik_logscale
             )
@@ -108,7 +40,7 @@ class LDS():
     
     def decode(self, latent: np.ndarray) -> np.ndarray:
         linear_decoder = self.C @ latent
-        Y = reparameterize(linear_decoder, logscale=self.likelihood_logscale)
+        Y = utils.reparameterize(linear_decoder, logscale=self.likelihood_logscale)
         return Y
     
     def emission_likelihood(self, y: np.ndarray, latent: np.ndarray) -> np.ndarray:
@@ -131,7 +63,7 @@ class LDS():
         R = np.exp(self.likelihood_logscale) * np.eye(self.output_dim)
 
         # Run Kalman filter and save predicted state means and covariances
-        (Xs_pred, Vs_pred), _ = Kalman_filter(
+        (Xs_pred, Vs_pred), _ = utils.Kalman_filter(
             Y, U, self.A, self.B, self.C, Q=Q, R=R, 
             init_x=np.zeros(self.latent_dim), init_V=Q
             )
@@ -139,11 +71,6 @@ class LDS():
         # Compute log-likelihood in single forward pass
         log_lik = 0.
         for y, x_pred, V_pred in zip(Y, Xs_pred, Vs_pred):
-            # _cov = self.C @ V_pred @ self.C.T + R
-            # _t1 = np.log(np.linalg.det(2*np.pi * _cov))
-            # _t2 = (y - self.C @ x_pred).T @ np.linalg.inv(_cov) @ (y - self.C @ x_pred)
-            # log_lik += -0.5 * (_t1 + _t2)
-
             log_lik += sp.stats.multivariate_normal.logpdf(y, mean=self.C @ x_pred, cov=self.C @ V_pred @ self.C.T + R)
 
         return log_lik
