@@ -1,5 +1,4 @@
 import numpy as np
-import scipy as sp
 from tqdm import tqdm
 from typing import Callable, Optional, Tuple
 

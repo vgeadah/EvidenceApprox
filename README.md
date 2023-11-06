@@ -1,6 +1,19 @@
 # Evidence approximation
 
-Currently only supports marginal log-likelihood evaluationw with Sequential Monte Carlo (SMC, i.e. particle filtering) ([^1]: An Introduction to Sequential Monte Carlo. A. Doucet, N. de Freitas, N. Gordon.)
+Methods for evaluating marginal log-likelihood $p(y | \theta)$ in state space models (SSM). Currently only supports marginal log-likelihood evaluationw with Sequential Monte Carlo (SMC, i.e. particle filtering [1]).
+
+A working example for the Linear Gaussian Dynamical System (LDS) model is provided, along with verification using exact marginal log-likelihood evaluation with Kalman filtering. 
+
+## Requirements
+
+The code is written with minimal requirements, in the hope that the user can rewrite it in their preferred package. This also means that many steps could be made more efficient (for instance, using `vmap` from Jax for parallelization). The requirements are 
+
+```
+numpy >= 1.24.3
+tqdm >= 4.65.0
+```
+
+And the current code uses `scipy >= 1.11.1` for the definition of the LDS example. 
 
 ## Usage
 
@@ -30,4 +43,6 @@ emission_likelihood: function, (N, t, y, latent) -> likelihood
     Returns:
         likelihood: array, (N,)
 ```
-and pass them to the `bootstrap_filter` method. See the `test_bootstrap()` function in `samplers.py` for an example use case in a Linear Gaussian Dynamical System model.
+and pass them to the `bootstrap_filter` method. See the `test_bootstrap()` function in `samplers.py` for an example use case in a LDS model.
+
+[1] An Introduction to Sequential Monte Carlo. A. Doucet, N. de Freitas, N. Gordon.
