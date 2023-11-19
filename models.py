@@ -1,9 +1,119 @@
+from math import e
 import numpy as np
 import scipy as sp
 from typing import Optional, Tuple
+from dataclasses import dataclass
+import tensorflow_probability.substrates.jax as tfp
+tfd = tfp.distributions
 
 # Local imports
 import utils
+
+
+@dataclass
+class transitions():
+    """Transition matrix"""
+    num_states: int # K
+    logpi: np.ndarray # KxK
+
+    def sample_next_latent_state(self, zt):
+        """Given previous latent state, sample next latent state."""
+        zt_next = tfd.Categorical(logits=self.logpi[zt,...]).sample()
+        return zt_next
+
+
+@dataclass
+class dynamics():
+    """Dynamics matrix"""
+    latent_dim: int # M
+    num_states: int # K
+    As: np.ndarray # KxM
+    bs: np.ndarray # KxM
+    Qs: np.ndarray # KxMxM
+
+    def sample_next_latent_state(self, zt, xt):
+        """Given previous latent state, sample next latent state."""
+        xt_next = tfd.MultivariateNormalTriL(loc=self.As[zt,...] @ xt + self.bs[zt], 
+                                             scale_tril=self.Qs[zt,...]).sample()
+        return xt_next
+
+@dataclass
+class emissions():
+    """Emission matrix"""
+    emission_dim: int
+    C: np.ndarray # NxM
+    d: np.ndarray # Nx1
+    R: np.ndarray # NxN
+
+    def sample_current_observation(self, xt):
+        """Given current latent state, sample current observation."""
+        yt = tfd.MultivariateNormalTriL(loc=self.C @ xt + self.d, 
+                                        scale_tril=self.R).sample()
+        return yt
+
+@dataclass
+class SLDS():
+    """Switching Linear Dynamical System model"""
+    latent_dim: int # M
+    emission_dim: int # N
+    num_states: int # K
+    dynamics: np.ndarray # KxMxM (Ax + B)
+    emissions:np.ndarray # NxM
+
+    def latent_forward(self, latents_prev: np.ndarray, inputs: np.ndarray) -> np.ndarray:
+        """Given previous latent state, sample next latent state."""
+        if latents_prev is None:
+            latents_prev = np.zeros(self.latent_dim)
+
+    def transition_matrix(self, logpi):
+        self.transitions = transitions(self.num_states, logpi)
+
+    def dynamics_matrix(self, As, bs, Qs):
+        self.dynamics = dynamics(self.latent_dim, 
+                                 self.num_states, 
+                                 As, 
+                                 bs, 
+                                 Qs)
+        
+    def emission_matrix(self, C, R):
+        self.emissions = emissions(self.emission_dim, C, R)
+
+    def latent_forward(self, latents_prev: dict,
+                       inputs: np.ndarray) -> np.ndarray:
+        """Given previous latent state, sample next latent state."""
+        zt = latents_prev['z']
+        xt = latents_prev['x']
+        zt_next = self.transitions.sample_next_latent_state(zt)
+        xt_next = self.dynamics.sample_next_latent_state(zt, xt)
+        return {'z': zt_next, 'x': xt_next}
+    
+    def decode(self, latents: np.ndarray) -> np.ndarray:
+        """Given current latent state, sample current observation."""
+        return self.emissions.sample_current_observation(latents['x'])
+    
+    def sample(self, num_samples: int, initial_state: dict) -> Tuple[np.ndarray, np.ndarray]:
+        """Sample from the model."""
+        z0 = initial_state['z']
+        x0 = initial_state['x']
+        zt = np.zeros((num_samples, )) 
+        xt = np.zeros((num_samples, self.latent_dim))
+        yt = np.zeros((num_samples, self.emission_dim))
+        for t in range(num_samples):
+            if t == 0:
+                zt[t] = self.transitions.sample_next_latent_state(z0)
+                xt[t, :] = self.dynamics.sample_next_latent_state(zt[t], x0)
+                yt[t, :] = self.emissions.sample_current_observation(xt[t])
+            else:
+                zt[t] = self.transitions.sample_next_latent_state(zt[t-1])
+                xt[t, :] = self.dynamics.sample_next_latent_state(zt[t-1], xt[t-1])
+                yt[t, :] = self.emissions.sample_current_observation(xt[t])
+        return {'z': zt, 'x': xt}, yt
+
+    def marginal_log_likelihood(self, inputs: np.ndarray, outputs: np.ndarray, 
+                                initial_state: dict, num_samples: int) -> float:
+        """Compute marginal log-likelihood of the model."""
+        
+
 
 class LDS():
     '''Linear Gaussian Dynamical System model'''
