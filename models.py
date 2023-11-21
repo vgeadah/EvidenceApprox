@@ -3,27 +3,29 @@ import numpy as np
 import scipy as sp
 from typing import Optional, Tuple
 from dataclasses import dataclass
+import jax
 import tensorflow_probability.substrates.jax as tfp
 tfd = tfp.distributions
 
 # Local imports
 import utils
 
+seed = jax.random.PRNGKey(0)
 
 @dataclass
-class transitions():
+class Transitions():
     """Transition matrix"""
     num_states: int # K
     logpi: np.ndarray # KxK
 
     def sample_next_latent_state(self, zt):
         """Given previous latent state, sample next latent state."""
-        zt_next = tfd.Categorical(logits=self.logpi[zt,...]).sample()
+        zt_next = tfd.Categorical(logits=self.logpi[zt,...]).sample(seed=seed)
         return zt_next
 
 
 @dataclass
-class dynamics():
+class Dynamics():
     """Dynamics matrix"""
     latent_dim: int # M
     num_states: int # K
@@ -34,13 +36,14 @@ class dynamics():
     def sample_next_latent_state(self, zt, xt):
         """Given previous latent state, sample next latent state."""
         xt_next = tfd.MultivariateNormalTriL(loc=self.As[zt,...] @ xt + self.bs[zt], 
-                                             scale_tril=self.Qs[zt,...]).sample()
+                                             scale_tril=self.Qs[zt,...]).sample(seed=seed)
         return xt_next
 
 @dataclass
-class emissions():
+class Emissions():
     """Emission matrix"""
     emission_dim: int
+    latent_dim: int
     C: np.ndarray # NxM
     d: np.ndarray # Nx1
     R: np.ndarray # NxN
@@ -48,7 +51,7 @@ class emissions():
     def sample_current_observation(self, xt):
         """Given current latent state, sample current observation."""
         yt = tfd.MultivariateNormalTriL(loc=self.C @ xt + self.d, 
-                                        scale_tril=self.R).sample()
+                                        scale_tril=self.R).sample(seed=seed)
         return yt
 
 @dataclass
@@ -57,26 +60,22 @@ class SLDS():
     latent_dim: int # M
     emission_dim: int # N
     num_states: int # K
-    dynamics: np.ndarray # KxMxM (Ax + B)
-    emissions:np.ndarray # NxM
+    transitions: Transitions
+    dynamics: Dynamics
+    emissions: Emissions
 
-    def latent_forward(self, latents_prev: np.ndarray, inputs: np.ndarray) -> np.ndarray:
-        """Given previous latent state, sample next latent state."""
-        if latents_prev is None:
-            latents_prev = np.zeros(self.latent_dim)
+    # def transition_matrix(self, logpi):
+    #     self.transitions = transitions(self.num_states, logpi)
 
-    def transition_matrix(self, logpi):
-        self.transitions = transitions(self.num_states, logpi)
-
-    def dynamics_matrix(self, As, bs, Qs):
-        self.dynamics = dynamics(self.latent_dim, 
-                                 self.num_states, 
-                                 As, 
-                                 bs, 
-                                 Qs)
+    # def dynamics_matrix(self, As, bs, Qs):
+    #     self.dynamics = dynamics(self.latent_dim, 
+    #                              self.num_states, 
+    #                              As, 
+    #                              bs, 
+    #                              Qs)
         
-    def emission_matrix(self, C, R):
-        self.emissions = emissions(self.emission_dim, C, R)
+    # def emission_matrix(self, C, R):
+    #     self.emissions = emissions(self.emission_dim, C, R)
 
     def latent_forward(self, latents_prev: dict,
                        inputs: np.ndarray) -> np.ndarray:
@@ -94,10 +93,12 @@ class SLDS():
     def sample(self, num_samples: int, initial_state: dict) -> Tuple[np.ndarray, np.ndarray]:
         """Sample from the model."""
         z0 = initial_state['z']
+        print(z0)
         x0 = initial_state['x']
-        zt = np.zeros((num_samples, )) 
-        xt = np.zeros((num_samples, self.latent_dim))
-        yt = np.zeros((num_samples, self.emission_dim))
+        print(x0)
+        zt = np.zeros((num_samples, ), dtype=np.int32) 
+        xt = np.zeros((num_samples, self.latent_dim), dtype=np.float32)
+        yt = np.zeros((num_samples, self.emission_dim), dtype=np.float32)
         for t in range(num_samples):
             if t == 0:
                 zt[t] = self.transitions.sample_next_latent_state(z0)
